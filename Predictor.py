@@ -14,11 +14,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-import pickle
+physical_devices = tf.config.list_physical_devices('GPU')
+tf.config.experimental.set_memory_growth(physical_devices[0], enable=True)
+#tf.keras.backend.set_floatx('float64')
 
-import os
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+import pickle
 
 
 # In[2]:
@@ -296,16 +296,21 @@ def create_training_data(days_ahead, lookback_days, df, cases_col, ip_cols):
             y_sample = all_case_data[d: d + days_ahead]
 
             # Flatten the daily data into one vector
-            X_sample = np.concatenate([X_cases.flatten(),
-                                       X_ips.flatten()])
-            
+            #X_sample = np.concatenate([X_cases.flatten(),
+            #                          X_ips.flatten()])
+            zeros = np.zeros(len(X_ips))
+            zeros[:len(X_cases)] = X_cases
+            X_cases = zeros
+            X_cases_transpose = X_cases.transpose()
+            X_sample = np.column_stack([X_cases_transpose, X_ips])
+            #X_sample = X_sample.reshape(1, X_sample.shape[0], X_sample.shape[1])
             # Add it to the list of training samples
             X_samples.append(X_sample)
             y_samples.append(y_sample)
 
     X_samples = np.array(X_samples)
     y_samples = np.array(y_samples)
-    
+
     return X_samples, y_samples
 
 def split_by_geoid(df, split=0.2):
@@ -359,21 +364,22 @@ print(f'There are {DAYS_AHEAD + LOOKBACK_DAYS} days of IP data, and {LOOKBACK_DA
 
 
 # Replace this with your own model!
-class MyModel(tf.keras.Model):
+class DenseModel(tf.keras.Model):
     def __init__(self, input_dim, output_dim):
         super().__init__()
         
         # WRITE YOUR CODE HERE
         self.model = tf.keras.Sequential()
-        #self.model.add(tf.keras.layers.Embedding(input_dim=input_dim, output_dim=64))
-        #self.model.add(tf.keras.layers.GRU(128))
+        
+        # This is the weights of the linear regression model.
+        # The L1 norm pulls some weights to zero, so that the weights at the end are sparse.
+        # This is called a Lasso model.
         self.model.add(tf.keras.layers.Dense(256, activation="relu"))
-        #self.model.add(tf.keras.layers.Dense(output_dim))
-        self.model.add(tf.keras.layers.Dropout(.2))
+        self.model.add(tf.keras.layers.Dropout(0.2))
         self.model.add(tf.keras.layers.Dense(
             output_dim,
             kernel_regularizer=tf.keras.regularizers.l1(0.1),))
-        
+
         # Call the model with a dummy input to build it
         self(tf.zeros([1, input_dim]))
         
@@ -381,7 +387,64 @@ class MyModel(tf.keras.Model):
     def call(self, x):
         return self.model(x)
     
-# Replace this with your own model!
+class BidirectionalLSTMModel(tf.keras.Model):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        
+        # WRITE YOUR CODE HERE
+        self.model = tf.keras.Sequential()
+        self.model.add(tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64, return_sequences=True), input_shape=(58, 12)))
+        self.model.add(tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64, dropout=0.2, activation="relu")))
+        self.model.add(tf.keras.layers.Dense(output_dim))
+
+        # Call the model with a dummy input to build it
+        self(tf.zeros([1, 58, 12]))
+        
+    @tf.function
+    def call(self, x):
+        return self.model(x)    
+
+    
+class RecursiveModel(tf.keras.Model):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        
+        # WRITE YOUR CODE HERE
+        self.model = tf.keras.Sequential()
+        self.model.add(tf.keras.layers.LSTM(32, input_shape=(58, 12)))
+        #self.model.add(tf.keras.layers.LSTM(32, dropout=0.2, activation = "relu"))
+        self.model.add(tf.keras.layers.Dense(output_dim))
+
+        # Call the model with a dummy input to build it
+        self(tf.zeros([1, 58, 12]))
+        
+    @tf.function
+    def call(self, x):
+        return self.model(x)
+    
+class DeepLSTMModel(tf.keras.Model):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        
+        # WRITE YOUR CODE HERE
+        self.model = tf.keras.Sequential()
+        self.model.add(tf.keras.layers.LSTM(16, input_shape=(58, 12), return_sequences=True))
+        self.model.add(tf.keras.layers.LSTM(16, dropout=0.2, activation = "relu", return_sequences=True))
+        self.model.add(tf.keras.layers.LSTM(16, dropout=0.2, activation = "relu", return_sequences=True))
+        self.model.add(tf.keras.layers.LSTM(16, dropout=0.2, activation = "relu", return_sequences=True))
+        self.model.add(tf.keras.layers.LSTM(16, dropout=0.2, activation = "relu", return_sequences=True))
+        self.model.add(tf.keras.layers.LSTM(16, dropout=0.2, activation = "relu", return_sequences=True))
+        self.model.add(tf.keras.layers.LSTM(16, dropout=0.2, activation = "relu", return_sequences=True))
+        self.model.add(tf.keras.layers.LSTM(16, dropout=0.2, activation = "relu"))
+        self.model.add(tf.keras.layers.Dense(output_dim))
+
+        # Call the model with a dummy input to build it
+        self(tf.zeros([1, 58, 12]))
+        
+    @tf.function
+    def call(self, x):
+        return self.model(x) 
+
 class LinearRegressionModel(tf.keras.Model):
     def __init__(self, input_dim, output_dim):
         super().__init__()
@@ -413,15 +476,14 @@ n_features = X_train.shape[1]
 n_predictions = y_train.shape[1]
 
 # PUT YOUR MODEL CLASS HERE
-print(X_train.shape, y_train.shape)
-model = MyModel(n_features, n_predictions)
+model = DeepLSTMModel(n_features, n_predictions)
 
 model.model.summary()
 
 
 # You can access the weight array of the model like so:
 
-# In[ ]:
+# In[22]:
 
 
 model.weights
@@ -437,7 +499,7 @@ model.weights
 # 
 # 
 
-# In[ ]:
+# In[23]:
 
 
 def shuffle_samples(X_samples, y_samples):
@@ -454,7 +516,7 @@ def train_model(X_train, y_train, X_val, y_val, model):
     # Define training parameters
     learning_rate = 2e-3
     n_epochs = 100
-    batch_size = 64
+    batch_size = 512
     trainer = tf.keras.optimizers.Adam(learning_rate)
 
     # Initialize logging
@@ -590,9 +652,15 @@ def make_prediction(ip_array, case_array, model):
     
     Returns:
         predictions (np.ndarray): An array of case predictions; shape (DaysAhead,)"""
-    X_sample = np.concatenate([case_array.flatten(),
-                               ip_array.flatten()])
-    X_sample = X_sample[None] # Shape (1, Features)
+    #X_sample = np.concatenate([case_array.flatten(),
+    #                          ip_array.flatten()])
+    zeros = np.zeros(len(ip_array))
+    zeros[:len(case_array)] = case_array
+    case_array = zeros
+    case_array_transpose = case_array.transpose()
+    X_sample = np.column_stack([case_array_transpose, ip_array])
+    X_sample = X_sample.reshape(1, X_sample.shape[0], X_sample.shape[1])
+    #X_sample = X_sample[None] # Shape (1, Features)
     return model(X_sample)[0]
 
 
@@ -771,10 +839,4 @@ if READY_FOR_TESTING:
     predict(test_start_date, test_end_date, TEST_INPUT_FILE)
     plot_final_results(test_start_date, test_end_date)
     
-
-
-# In[ ]:
-
-
-
 
