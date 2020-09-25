@@ -98,7 +98,7 @@ df_all.sample(3)
 # The data has both countries and regions columns. We will make a 'GeoID' column combining these.
 # 
 
-# In[6]:
+# In[ ]:
 
 
 def add_geoid(df):
@@ -117,7 +117,7 @@ add_geoid(df_all)
 
 # ### Fill in missing data
 
-# In[7]:
+# In[ ]:
 
 
 # Fill any missing NPIs by assuming they are the same as previous day
@@ -134,13 +134,13 @@ for ip_col in IP_COLUMNS:
 # 
 # Like this:
 
-# In[8]:
+# In[ ]:
 
 
 df_all["NewCases"] = df_all.groupby(["GeoID"]).ConfirmedCases.diff().fillna(0)
 
 
-# In[9]:
+# In[ ]:
 
 
 # Fill any missing case values by interpolation and setting NaNs to 0
@@ -154,14 +154,14 @@ df_all.update(df_all.groupby('GeoID').NewCases.apply(
 # 
 # Select columns of the DataFrame using indexing, and then sample 3 random rows.
 
-# In[10]:
+# In[ ]:
 
 
 ID_COLUMNS = ["CountryName", "RegionName", "GeoID", "Date"]
 CASES_COLUMNS = ["NewCases", "ConfirmedCases"]
 
 
-# In[11]:
+# In[ ]:
 
 
 df_all[ID_COLUMNS + CASES_COLUMNS +  IP_COLUMNS].sample(3)
@@ -170,7 +170,7 @@ df_all[ID_COLUMNS + CASES_COLUMNS +  IP_COLUMNS].sample(3)
 # ### Listing the latest historical daily new cases for a given country and region
 # For instance, for country **United States**, region **Texas**, the latest available changes in confirmed cases are:
 
-# In[12]:
+# In[ ]:
 
 
 geoid = 'United States / Texas'
@@ -182,7 +182,7 @@ country_region_df[["CountryName", "RegionName", "Date", "ConfirmedCases", "NewCa
 # 
 # Here is all the data available for Texas:
 
-# In[13]:
+# In[ ]:
 
 
 country_region_df.plot(title=f'Daily new cases: {geoid}',
@@ -196,7 +196,7 @@ country_region_df.plot(title=f'Daily new cases: {geoid}',
 # ## Predictor input
 # The goal of a predictor is to predict the expected number of daily cases for countries and regions for a list of days, assumging the given daily IPs are in place:
 
-# In[14]:
+# In[ ]:
 
 
 EXAMPLE_INPUT_FILE = "2020-08-01_2020-08-04_npis_example.csv"
@@ -209,7 +209,7 @@ prediction_input_df.head()
 # ## Predictor expected output
 # The output produced by the predictor should look like that:
 
-# In[15]:
+# In[ ]:
 
 
 EXAMPLE_OUTPUT_FILE = "2020-08-01_2020-08-04_predictions_example.csv"
@@ -225,7 +225,7 @@ prediction_output_df.head()
 # 
 # The holdout set contains data from the last four weeks.
 
-# In[16]:
+# In[ ]:
 
 
 test_start_date = "2020-08-16"
@@ -246,7 +246,7 @@ df_train = df_all[df_all.Date < test_start_date]
 # 
 # 
 
-# In[17]:
+# In[ ]:
 
 
 def create_training_data(days_ahead, lookback_days, df, cases_col, ip_cols):
@@ -310,7 +310,6 @@ def create_training_data(days_ahead, lookback_days, df, cases_col, ip_cols):
 
     X_samples = np.array(X_samples)
     y_samples = np.array(y_samples)
-
     return X_samples, y_samples
 
 def split_by_geoid(df, split=0.2):
@@ -330,7 +329,7 @@ def split_by_geoid(df, split=0.2):
     return df_first, df_second
 
 
-# In[18]:
+# In[ ]:
 
 
 DAYS_AHEAD = 4 * 7 # The goal entails predicting four weeks of data.
@@ -342,7 +341,7 @@ X_train, y_train = create_training_data(DAYS_AHEAD, LOOKBACK_DAYS, df_train, CAS
 X_val, y_val = create_training_data(DAYS_AHEAD, LOOKBACK_DAYS, df_val, CASES_COLUMN, IP_COLUMNS)
 
 
-# In[19]:
+# In[ ]:
 
 
 print(f'There are {X_train.shape[0]} training samples, and each has {X_train.shape[1]} feature dimensions.')
@@ -360,10 +359,28 @@ print(f'There are {DAYS_AHEAD + LOOKBACK_DAYS} days of IP data, and {LOOKBACK_DA
 # Modify this class to create your neural network model.
 # 
 
-# In[20]:
+# In[ ]:
 
 
 # Replace this with your own model!
+class TestModel(tf.keras.Model):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        
+        # WRITE YOUR CODE HERE
+        self.model = tf.keras.Sequential()
+        self.model.add(tf.keras.layers.LSTM(64, input_shape=(58, 12)))
+        self.model.add(tf.keras.layers.Dense(256, activation="relu"))
+        self.model.add(tf.keras.layers.LSTM(64))
+        self.model.add(tf.keras.layers.Dense(output_dim, activation="relu"))
+
+        # Call the model with a dummy input to build it
+        self(tf.zeros([128, 58, 12]))
+        
+    @tf.function
+    def call(self, x):
+        return self.model(x)
+
 class DenseModel(tf.keras.Model):
     def __init__(self, input_dim, output_dim):
         super().__init__()
@@ -398,12 +415,11 @@ class BidirectionalLSTMModel(tf.keras.Model):
         self.model.add(tf.keras.layers.Dense(output_dim))
 
         # Call the model with a dummy input to build it
-        self(tf.zeros([1, 58, 12]))
+        self(tf.zeros([128, 58, 12]))
         
     @tf.function
     def call(self, x):
         return self.model(x)    
-
     
 class RecursiveModel(tf.keras.Model):
     def __init__(self, input_dim, output_dim):
@@ -411,12 +427,12 @@ class RecursiveModel(tf.keras.Model):
         
         # WRITE YOUR CODE HERE
         self.model = tf.keras.Sequential()
-        self.model.add(tf.keras.layers.LSTM(32, input_shape=(58, 12)))
+        self.model.add(tf.keras.layers.LSTM(150, input_shape=(58, 12)))
         #self.model.add(tf.keras.layers.LSTM(32, dropout=0.2, activation = "relu"))
         self.model.add(tf.keras.layers.Dense(output_dim))
 
         # Call the model with a dummy input to build it
-        self(tf.zeros([1, 58, 12]))
+        self(tf.zeros([128, 58, 12]))
         
     @tf.function
     def call(self, x):
@@ -469,21 +485,21 @@ class LinearRegressionModel(tf.keras.Model):
 
 # Next, we create an instance of the model.
 
-# In[21]:
+# In[ ]:
 
 
 n_features = X_train.shape[1]
 n_predictions = y_train.shape[1]
 
 # PUT YOUR MODEL CLASS HERE
-model = DeepLSTMModel(n_features, n_predictions)
+model = TestModel(n_features, n_predictions)
 
 model.model.summary()
 
 
 # You can access the weight array of the model like so:
 
-# In[22]:
+# In[ ]:
 
 
 model.weights
@@ -499,7 +515,7 @@ model.weights
 # 
 # 
 
-# In[23]:
+# In[ ]:
 
 
 def shuffle_samples(X_samples, y_samples):
